@@ -1,13 +1,17 @@
 package payroll;
 
 import org.springframework.boot.autoconfigure.ldap.embedded.EmbeddedLdapAutoConfiguration;
+import static org.springframework.hateoas.mvc.ControllerLinkBuilder.*;
 import org.springframework.util.ReflectionUtils;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.hateoas.Resource;
+import org.springframework.hateoas.Resources;
+
 
 import java.lang.reflect.Field;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.stream.Collectors;
 
 
 @RestController
@@ -22,8 +26,16 @@ class EmployeeController {
     // Aggregate root
 
     @GetMapping("/employees")
-    List<Employee> all() {
-        return repository.findAll();
+    Resources<Resource<Employee>> all() {
+
+        List<Resource<Employee>> employees = repository.findAll().stream()
+                .map(employee -> new Resource<>(employee,
+                        linkTo(methodOn(EmployeeController.class).one(employee.getId())).withSelfRel(),
+                        linkTo(methodOn(EmployeeController.class).all()).withRel("employees")))
+                .collect(Collectors.toList());
+
+        return new Resources<>(employees,
+                linkTo(methodOn(EmployeeController.class).all()).withSelfRel());
     }
 
     @PostMapping("/employees")
@@ -34,10 +46,14 @@ class EmployeeController {
     // Single item
 
     @GetMapping("/employees/{id}")
-    Employee one(@PathVariable Long id) {
+    Resource<Employee> one(@PathVariable Long id) {
 
-        return repository.findById(id)
+        Employee employee = repository.findById(id)
                 .orElseThrow(() -> new EmployeeNotFoundException(id));
+
+        return new Resource<>(employee,
+                linkTo(methodOn(EmployeeController.class).one(id)).withSelfRel(),
+                linkTo(methodOn(EmployeeController.class).all()).withRel("employees"));
     }
 
     @PutMapping("/employees/{id}")
@@ -57,27 +73,18 @@ class EmployeeController {
 
     @PatchMapping("/employees/{id}")
     Employee alterEmployee(@RequestBody Map<String, Object> updates, @PathVariable Long id) {
-        Optional<Employee> employee = repository.findById(id);
-        Employee employeePresent;
-
-        if (employee.isPresent())
-        {
-             employeePresent = employee.get();
-        }
-        else
-        {
-            return null;
-        }
+        Employee employee = repository.findById(id)
+                .orElseThrow(() -> new EmployeeNotFoundException(id));
 
         updates.forEach((k, v) -> {
             //reflection to update specific fields only
             Field field = ReflectionUtils.findField(Employee.class, k);
             field.setAccessible(true);
-            ReflectionUtils.setField(field, employeePresent, v);
+            ReflectionUtils.setField(field, employee, v);
         });
 
-        repository.save(employeePresent);
-        return employeePresent;
+        repository.save(employee);
+        return employee;
     }
 
     @DeleteMapping("/employees/{id}")
